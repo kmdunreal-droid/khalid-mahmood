@@ -1,0 +1,902 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pillar 4 Global Safety Net: Default-deny all paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ==================== GLOBAL SECURITY PRIMITIVES ====================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // Bootstrapped Owner email from runtime configuration
+    function isBootstrappedOwner() {
+      return isSignedIn() && request.auth.token.email == 'k.m.d.unreal@gmail.com';
+    }
+
+    function hasUserProfile() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return isSignedIn() && hasUserProfile() && userProfile().status == 'ACTIVE';
+    }
+
+    function isOwner() {
+      return isBootstrappedOwner() || (isActiveUser() && userProfile().role == 'OWNER');
+    }
+
+    function isStationManager(stationId) {
+      return isActiveUser() && userProfile().role == 'MANAGER' && userProfile().stationId == stationId;
+    }
+
+    function isStationOperator(stationId) {
+      return isActiveUser() && userProfile().role == 'OPERATOR' && userProfile().stationId == stationId;
+    }
+
+    function isStationMember(stationId) {
+      return isOwner() || isStationManager(stationId) || isStationOperator(stationId);
+    }
+
+    function stationExists(stationId) {
+      return exists(/databases/$(database)/documents/stations/$(stationId));
+    }
+
+    // ==================== ENTITY VALIDATION BLUEPRINTS ====================
+    function isValidStation(data) {
+      return data.keys().hasAll(['stationCode', 'name', 'licenseNo', 'taxGstNo', 'timezone', 'ownerUid', 'isActive', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['stationCode', 'name', 'licenseNo', 'taxGstNo', 'timezone', 'ownerUid', 'isActive', 'createdAt', 'updatedAt'])
+        && data.stationCode is string && data.stationCode.size() >= 3 && data.stationCode.size() <= 24 && data.stationCode.matches('^[A-Z0-9-]+$')
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+        && data.licenseNo is string && data.licenseNo.size() >= 3 && data.licenseNo.size() <= 64
+        && data.taxGstNo is string && data.taxGstNo.size() >= 5 && data.taxGstNo.size() <= 32
+        && data.timezone is string && data.timezone.size() >= 2 && data.timezone.size() <= 48
+        && isValidId(data.ownerUid)
+        && data.isActive is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['uid', 'stationId', 'displayName', 'employeeCode', 'role', 'status', 'assignedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'stationId', 'displayName', 'employeeCode', 'role', 'status', 'assignedBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isValidId(data.stationId)
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 120
+        && data.employeeCode is string && data.employeeCode.size() >= 2 && data.employeeCode.size() <= 24
+        && data.role in ['OWNER', 'MANAGER', 'OPERATOR']
+        && data.status in ['ACTIVE', 'SUSPENDED']
+        && isValidId(data.assignedBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivatePii(data) {
+      return data.keys().hasAll(['uid', 'email', 'phone', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'phone', 'emergencyContact', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.phone is string && data.phone.size() <= 24
+        && (!('emergencyContact' in data) || (data.emergencyContact is string && data.emergencyContact.size() <= 120))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoleRequest(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'stationId', 'requestedRole', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'stationId', 'requestedRole', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 120
+        && isValidId(data.stationId)
+        && data.requestedRole in ['MANAGER', 'OPERATOR']
+        && data.status in ['PENDING', 'APPROVED', 'DECLINED']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['stationId', 'actorUid', 'module', 'action', 'entityType', 'entityId', 'summary', 'createdAt'])
+        && data.keys().hasOnly(['stationId', 'actorUid', 'module', 'action', 'entityType', 'entityId', 'summary', 'createdAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.actorUid)
+        && data.module is string && data.module.size() >= 2 && data.module.size() <= 48
+        && data.action is string && data.action.size() >= 2 && data.action.size() <= 64
+        && data.entityType is string && data.entityType.size() >= 2 && data.entityType.size() <= 48
+        && isValidId(data.entityId)
+        && data.summary is string && data.summary.size() >= 2 && data.summary.size() <= 500
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFuelProduct(data) {
+      return data.keys().hasAll(['stationId', 'sku', 'name', 'category', 'unit', 'currentSellingPrice', 'taxRatePct', 'reorderLevel', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'sku', 'name', 'category', 'unit', 'currentSellingPrice', 'taxRatePct', 'reorderLevel', 'updatedAt'])
+        && isValidId(data.stationId)
+        && data.sku is string && data.sku.size() >= 2 && data.sku.size() <= 32
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.category in ['FUEL', 'LUBRICANT', 'ADDITIVE']
+        && data.unit in ['LITRE', 'KG', 'BOTTLE']
+        && data.currentSellingPrice is number && data.currentSellingPrice >= 0
+        && data.taxRatePct is number && data.taxRatePct >= 0
+        && data.reorderLevel is number && data.reorderLevel >= 0
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStorageTank(data) {
+      return data.keys().hasAll(['stationId', 'productId', 'tankCode', 'capacityLitres', 'currentBookStockLitres', 'lastDipStockLitres', 'minThresholdLitres', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'productId', 'tankCode', 'capacityLitres', 'currentBookStockLitres', 'lastDipStockLitres', 'minThresholdLitres', 'updatedAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.productId)
+        && data.tankCode is string && data.tankCode.size() >= 2 && data.tankCode.size() <= 16
+        && data.capacityLitres is number && data.capacityLitres > 0
+        && data.currentBookStockLitres is number && data.currentBookStockLitres >= 0
+        && data.lastDipStockLitres is number && data.lastDipStockLitres >= 0
+        && data.minThresholdLitres is number && data.minThresholdLitres >= 0
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTankDipReading(data) {
+      return data.keys().hasAll(['tankId', 'recordedByUid', 'readingType', 'dipMm', 'calculatedVolumeLitres', 'bookStockLitres', 'varianceLitres', 'recordedAt'])
+        && data.keys().hasOnly(['tankId', 'shiftId', 'recordedByUid', 'readingType', 'dipMm', 'waterDipMm', 'calculatedVolumeLitres', 'bookStockLitres', 'varianceLitres', 'recordedAt'])
+        && isValidId(data.tankId)
+        && (!('shiftId' in data) || isValidId(data.shiftId))
+        && isValidId(data.recordedByUid)
+        && data.readingType in ['SHIFT_OPEN', 'SHIFT_CLOSE', 'PRE_DECANT', 'POST_DECANT', 'AUDIT']
+        && data.dipMm is number && data.dipMm >= 0
+        && (!('waterDipMm' in data) || (data.waterDipMm is number && data.waterDipMm >= 0))
+        && data.calculatedVolumeLitres is number && data.calculatedVolumeLitres >= 0
+        && data.bookStockLitres is number && data.bookStockLitres >= 0
+        && data.varianceLitres is number
+        && data.recordedAt is timestamp;
+    }
+
+    function isValidShift(data) {
+      return data.keys().hasAll(['stationId', 'shiftCode', 'shiftType', 'businessDate', 'supervisorUid', 'operatorUid', 'status', 'openingCashFloat', 'expectedCashTotal', 'actualCashCollected', 'cashVariance', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'shiftCode', 'shiftType', 'businessDate', 'supervisorUid', 'operatorUid', 'status', 'openingCashFloat', 'expectedCashTotal', 'actualCashCollected', 'cashVariance', 'cashBagSealNo', 'createdAt', 'updatedAt'])
+        && isValidId(data.stationId)
+        && data.shiftCode is string && data.shiftCode.size() >= 4 && data.shiftCode.size() <= 32
+        && data.shiftType in ['DAY', 'NIGHT']
+        && data.businessDate is string && data.businessDate.size() >= 8 && data.businessDate.size() <= 16
+        && isValidId(data.supervisorUid)
+        && isValidId(data.operatorUid)
+        && data.status in ['OPEN', 'HANDED_OVER', 'APPROVED', 'REJECTED']
+        && data.openingCashFloat is number && data.openingCashFloat >= 0
+        && data.expectedCashTotal is number
+        && data.actualCashCollected is number && data.actualCashCollected >= 0
+        && data.cashVariance is number
+        && (!('cashBagSealNo' in data) || (data.cashBagSealNo is string && data.cashBagSealNo.size() <= 48))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidShiftNozzleAssignment(data) {
+      return data.keys().hasAll(['shiftId', 'nozzleId', 'operatorUid', 'openingMeter', 'closingMeter', 'testingLitres', 'netDispensedLitres', 'unitPrice', 'grossAmount', 'updatedAt'])
+        && data.keys().hasOnly(['shiftId', 'nozzleId', 'operatorUid', 'openingMeter', 'closingMeter', 'testingLitres', 'netDispensedLitres', 'unitPrice', 'grossAmount', 'updatedAt'])
+        && isValidId(data.shiftId)
+        && isValidId(data.nozzleId)
+        && isValidId(data.operatorUid)
+        && data.openingMeter is number && data.openingMeter >= 0
+        && data.closingMeter is number && data.closingMeter >= data.openingMeter
+        && data.testingLitres is number && data.testingLitres >= 0
+        && data.netDispensedLitres is number && data.netDispensedLitres >= 0
+        && data.unitPrice is number && data.unitPrice >= 0
+        && data.grossAmount is number && data.grossAmount >= 0
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidShiftExpense(data) {
+      return data.keys().hasAll(['shiftId', 'stationId', 'category', 'vendor', 'amount', 'paidFromCashDrawer', 'receiptRef', 'recordedByUid', 'createdAt'])
+        && data.keys().hasOnly(['shiftId', 'stationId', 'category', 'vendor', 'description', 'amount', 'paidFromCashDrawer', 'receiptRef', 'recordedByUid', 'createdAt'])
+        && isValidId(data.shiftId)
+        && isValidId(data.stationId)
+        && data.category in ['GENERATOR_FUEL', 'UTILITIES', 'MAINTENANCE', 'STAFF_WELFARE', 'CLEANING']
+        && data.vendor is string && data.vendor.size() >= 2 && data.vendor.size() <= 120
+        && (!('description' in data) || (data.description is string && data.description.size() <= 300))
+        && data.amount is number && data.amount > 0
+        && data.paidFromCashDrawer is bool
+        && data.receiptRef is string && data.receiptRef.size() >= 2 && data.receiptRef.size() <= 48
+        && isValidId(data.recordedByUid)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSupplier(data) {
+      return data.keys().hasAll(['stationId', 'supplierCode', 'name', 'category', 'gstNumber', 'contactPerson', 'phone', 'paymentTermsDays', 'creditLimit', 'outstandingBalance', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'supplierCode', 'name', 'category', 'gstNumber', 'contactPerson', 'phone', 'email', 'depotLocation', 'paymentTermsDays', 'creditLimit', 'outstandingBalance', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.stationId)
+        && data.supplierCode is string && data.supplierCode.size() >= 2 && data.supplierCode.size() <= 24
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 140
+        && data.category in ['OMC_FUEL', 'LUBRICANT', 'ADDITIVE', 'EQUIPMENT']
+        && data.gstNumber is string && data.gstNumber.size() >= 5 && data.gstNumber.size() <= 32
+        && data.contactPerson is string && data.contactPerson.size() >= 2 && data.contactPerson.size() <= 100
+        && data.phone is string && data.phone.size() >= 4 && data.phone.size() <= 24
+        && (!('email' in data) || (data.email is string && data.email.size() <= 160))
+        && (!('depotLocation' in data) || (data.depotLocation is string && data.depotLocation.size() <= 160))
+        && data.paymentTermsDays is number && data.paymentTermsDays >= 0
+        && data.creditLimit is number && data.creditLimit >= 0
+        && data.outstandingBalance is number && data.outstandingBalance >= 0
+        && data.status in ['ACTIVE', 'ON_HOLD', 'INACTIVE']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPurchaseOrder(data) {
+      return data.keys().hasAll(['stationId', 'supplierId', 'supplierName', 'poNumber', 'orderDate', 'expectedDeliveryDate', 'primaryFuelGrade', 'totalOrderedLitres', 'receivedLitres', 'itemsJson', 'status', 'totalEstimatedAmount', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'supplierId', 'supplierName', 'poNumber', 'orderDate', 'expectedDeliveryDate', 'primaryFuelGrade', 'totalOrderedLitres', 'receivedLitres', 'itemsJson', 'notes', 'status', 'totalEstimatedAmount', 'createdByUid', 'approvedByUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.supplierId)
+        && data.supplierName is string && data.supplierName.size() >= 2 && data.supplierName.size() <= 140
+        && data.poNumber is string && data.poNumber.size() >= 3 && data.poNumber.size() <= 32
+        && data.orderDate is string && data.orderDate.size() >= 8 && data.orderDate.size() <= 16
+        && data.expectedDeliveryDate is string && data.expectedDeliveryDate.size() >= 8 && data.expectedDeliveryDate.size() <= 16
+        && data.primaryFuelGrade is string && data.primaryFuelGrade.size() >= 2 && data.primaryFuelGrade.size() <= 48
+        && data.totalOrderedLitres is number && data.totalOrderedLitres >= 0
+        && data.receivedLitres is number && data.receivedLitres >= 0
+        && data.itemsJson is string && data.itemsJson.size() >= 2 && data.itemsJson.size() <= 2000
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 400))
+        && data.status in ['DRAFT', 'ORDERED', 'PARTIAL', 'RECEIVED', 'CANCELLED']
+        && data.totalEstimatedAmount is number && data.totalEstimatedAmount >= 0
+        && isValidId(data.createdByUid)
+        && (!('approvedByUid' in data) || isValidId(data.approvedByUid))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFuelDelivery(data) {
+      return data.keys().hasAll(['stationId', 'supplierId', 'supplierName', 'invoiceNumber', 'deliveryDate', 'tankerRegNo', 'productName', 'targetTankCode', 'invoicedQtyLitres', 'receivedQtyLitres', 'shortageLitres', 'densityObserved', 'temperatureC', 'waterDipMm', 'totalInvoiceAmount', 'status', 'verifiedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'poId', 'poNumber', 'supplierId', 'supplierName', 'invoiceNumber', 'deliveryDate', 'tankerRegNo', 'driverName', 'productName', 'targetTankCode', 'invoicedQtyLitres', 'receivedQtyLitres', 'shortageLitres', 'densityObserved', 'temperatureC', 'waterDipMm', 'totalInvoiceAmount', 'status', 'verifiedByUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.stationId)
+        && (!('poId' in data) || isValidId(data.poId))
+        && (!('poNumber' in data) || (data.poNumber is string && data.poNumber.size() <= 32))
+        && isValidId(data.supplierId)
+        && data.supplierName is string && data.supplierName.size() >= 2 && data.supplierName.size() <= 140
+        && data.invoiceNumber is string && data.invoiceNumber.size() >= 2 && data.invoiceNumber.size() <= 48
+        && data.deliveryDate is string && data.deliveryDate.size() >= 8 && data.deliveryDate.size() <= 16
+        && data.tankerRegNo is string && data.tankerRegNo.size() >= 4 && data.tankerRegNo.size() <= 24
+        && (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 100))
+        && data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 100
+        && data.targetTankCode is string && data.targetTankCode.size() >= 2 && data.targetTankCode.size() <= 16
+        && data.invoicedQtyLitres is number && data.invoicedQtyLitres > 0
+        && data.receivedQtyLitres is number && data.receivedQtyLitres >= 0
+        && data.shortageLitres is number
+        && data.densityObserved is number && data.densityObserved > 0
+        && data.temperatureC is number
+        && data.waterDipMm is number && data.waterDipMm >= 0
+        && data.totalInvoiceAmount is number && data.totalInvoiceAmount >= 0
+        && data.status in ['PENDING', 'DECANTED', 'POSTED']
+        && isValidId(data.verifiedByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSupplierInvoice(data) {
+      return data.keys().hasAll(['stationId', 'supplierId', 'supplierName', 'invoiceNumber', 'invoiceDate', 'dueDate', 'subtotalAmount', 'taxAmount', 'totalAmount', 'paidAmount', 'paymentStatus', 'recordedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'supplierId', 'supplierName', 'poId', 'deliveryId', 'invoiceNumber', 'invoiceDate', 'dueDate', 'subtotalAmount', 'taxAmount', 'totalAmount', 'paidAmount', 'paymentStatus', 'recordedByUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.supplierId)
+        && data.supplierName is string && data.supplierName.size() >= 2 && data.supplierName.size() <= 140
+        && (!('poId' in data) || isValidId(data.poId))
+        && (!('deliveryId' in data) || isValidId(data.deliveryId))
+        && data.invoiceNumber is string && data.invoiceNumber.size() >= 2 && data.invoiceNumber.size() <= 48
+        && data.invoiceDate is string && data.invoiceDate.size() >= 8 && data.invoiceDate.size() <= 16
+        && data.dueDate is string && data.dueDate.size() >= 8 && data.dueDate.size() <= 16
+        && data.subtotalAmount is number && data.subtotalAmount >= 0
+        && data.taxAmount is number && data.taxAmount >= 0
+        && data.totalAmount is number && data.totalAmount >= 0
+        && data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount <= data.totalAmount
+        && data.paymentStatus in ['UNPAID', 'PARTIAL', 'PAID']
+        && isValidId(data.recordedByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSupplierPayment(data) {
+      return data.keys().hasAll(['stationId', 'supplierId', 'supplierName', 'invoiceId', 'invoiceNumber', 'paymentRef', 'paymentDate', 'paymentMode', 'amount', 'recordedByUid', 'createdAt'])
+        && data.keys().hasOnly(['stationId', 'supplierId', 'supplierName', 'invoiceId', 'invoiceNumber', 'paymentRef', 'paymentDate', 'paymentMode', 'amount', 'notes', 'recordedByUid', 'createdAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.supplierId)
+        && data.supplierName is string && data.supplierName.size() >= 2 && data.supplierName.size() <= 140
+        && isValidId(data.invoiceId)
+        && data.invoiceNumber is string && data.invoiceNumber.size() >= 2 && data.invoiceNumber.size() <= 48
+        && data.paymentRef is string && data.paymentRef.size() >= 2 && data.paymentRef.size() <= 48
+        && data.paymentDate is string && data.paymentDate.size() >= 8 && data.paymentDate.size() <= 16
+        && data.paymentMode in ['RTGS', 'NEFT', 'CHEQUE', 'UPI', 'CASH']
+        && data.amount is number && data.amount > 0
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && isValidId(data.recordedByUid)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSalesTransaction(data) {
+      return data.keys().hasAll(['stationId', 'shiftId', 'dispenserCode', 'nozzleCode', 'productName', 'gradeCode', 'quantityLitres', 'unitSellingPrice', 'unitCostPrice', 'grossProfit', 'operatorUid', 'operatorName', 'receiptNumber', 'paymentMode', 'totalAmount', 'status', 'soldDate', 'soldAt'])
+        && data.keys().hasOnly(['stationId', 'shiftId', 'dispenserCode', 'nozzleCode', 'productName', 'gradeCode', 'quantityLitres', 'unitSellingPrice', 'unitCostPrice', 'grossProfit', 'operatorUid', 'operatorName', 'customerId', 'customerName', 'receiptNumber', 'paymentMode', 'paymentReference', 'vehicleNo', 'totalAmount', 'status', 'soldDate', 'soldAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.shiftId)
+        && data.dispenserCode is string && data.dispenserCode.size() >= 2 && data.dispenserCode.size() <= 24
+        && data.nozzleCode is string && data.nozzleCode.size() >= 2 && data.nozzleCode.size() <= 24
+        && data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 100
+        && data.gradeCode is string && data.gradeCode.size() >= 2 && data.gradeCode.size() <= 16
+        && data.quantityLitres is number && data.quantityLitres > 0
+        && data.unitSellingPrice is number && data.unitSellingPrice > 0
+        && data.unitCostPrice is number && data.unitCostPrice >= 0
+        && data.grossProfit is number
+        && isValidId(data.operatorUid)
+        && data.operatorName is string && data.operatorName.size() >= 2 && data.operatorName.size() <= 100
+        && (!('customerId' in data) || isValidId(data.customerId))
+        && (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 140))
+        && data.receiptNumber is string && data.receiptNumber.size() >= 3 && data.receiptNumber.size() <= 40
+        && data.paymentMode in ['CASH', 'CARD', 'UPI', 'CREDIT', 'FLEET_CARD']
+        && (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 64))
+        && (!('vehicleNo' in data) || (data.vehicleNo is string && data.vehicleNo.size() <= 24))
+        && data.totalAmount is number && data.totalAmount > 0
+        && data.status in ['POSTED', 'VOIDED']
+        && data.soldDate is string && data.soldDate.size() >= 8 && data.soldDate.size() <= 16
+        && data.soldAt is timestamp;
+    }
+
+    function isValidCreditCustomer(data) {
+      return data.keys().hasAll(['stationId', 'accountCode', 'companyName', 'creditLimit', 'currentBalance', 'status', 'updatedAt'])
+        && data.keys().hasOnly(['stationId', 'accountCode', 'companyName', 'creditLimit', 'currentBalance', 'status', 'updatedAt'])
+        && isValidId(data.stationId)
+        && data.accountCode is string && data.accountCode.size() >= 2 && data.accountCode.size() <= 24
+        && data.companyName is string && data.companyName.size() >= 2 && data.companyName.size() <= 140
+        && data.creditLimit is number && data.creditLimit >= 0
+        && data.currentBalance is number && data.currentBalance >= 0
+        && data.status in ['ACTIVE', 'HOLD', 'SUSPENDED']
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCreditLedgerEntry(data) {
+      return data.keys().hasAll(['customerId', 'stationId', 'txType', 'amount', 'runningBalance', 'referenceId', 'createdAt'])
+        && data.keys().hasOnly(['customerId', 'stationId', 'txType', 'amount', 'runningBalance', 'referenceId', 'createdAt'])
+        && isValidId(data.customerId)
+        && isValidId(data.stationId)
+        && data.txType in ['INVOICE_DEBIT', 'PAYMENT_CREDIT', 'ADJUSTMENT']
+        && data.amount is number && data.amount > 0
+        && data.runningBalance is number && data.runningBalance >= 0
+        && isValidId(data.referenceId)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidJournalEntry(data) {
+      return data.keys().hasAll(['stationId', 'voucherNo', 'sourceModule', 'totalDebit', 'totalCredit', 'status', 'postedByUid', 'createdAt'])
+        && data.keys().hasOnly(['stationId', 'voucherNo', 'sourceModule', 'sourceId', 'totalDebit', 'totalCredit', 'status', 'postedByUid', 'createdAt'])
+        && isValidId(data.stationId)
+        && data.voucherNo is string && data.voucherNo.size() >= 3 && data.voucherNo.size() <= 32
+        && data.sourceModule is string && data.sourceModule.size() >= 2 && data.sourceModule.size() <= 48
+        && (!('sourceId' in data) || isValidId(data.sourceId))
+        && data.totalDebit is number && data.totalDebit >= 0
+        && data.totalCredit is number && data.totalCredit == data.totalDebit
+        && data.status in ['DRAFT', 'POSTED', 'REVERSED']
+        && isValidId(data.postedByUid)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidOwnerNotification(data) {
+      return data.keys().hasAll(['stationId', 'recipientUid', 'severity', 'eventType', 'title', 'message', 'isRead', 'createdAt'])
+        && data.keys().hasOnly(['stationId', 'recipientUid', 'shiftId', 'severity', 'eventType', 'title', 'message', 'isRead', 'createdAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.recipientUid)
+        && (!('shiftId' in data) || isValidId(data.shiftId))
+        && data.severity in ['INFO', 'WARNING', 'CRITICAL']
+        && data.eventType is string && data.eventType.size() >= 2 && data.eventType.size() <= 48
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 160
+        && data.message is string && data.message.size() >= 2 && data.message.size() <= 500
+        && data.isRead is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidStockMovement(data) {
+      return data.keys().hasAll(['stationId', 'tankId', 'tankCode', 'productId', 'productName', 'gradeCode', 'direction', 'movementType', 'quantityLitres', 'balanceAfterLitres', 'referenceNo', 'recordedByUid', 'movementDate', 'createdAt'])
+        && data.keys().hasOnly(['stationId', 'tankId', 'tankCode', 'productId', 'productName', 'gradeCode', 'direction', 'movementType', 'quantityLitres', 'balanceAfterLitres', 'referenceNo', 'densityObserved', 'notes', 'recordedByUid', 'movementDate', 'createdAt'])
+        && isValidId(data.stationId)
+        && isValidId(data.tankId)
+        && data.tankCode is string && data.tankCode.size() >= 2 && data.tankCode.size() <= 16
+        && isValidId(data.productId)
+        && data.productName is string && data.productName.size() >= 2 && data.productName.size() <= 100
+        && data.gradeCode is string && data.gradeCode.size() >= 2 && data.gradeCode.size() <= 16
+        && data.direction in ['IN', 'OUT']
+        && data.movementType in ['TANKER_DECANT', 'NOZZLE_SALES', 'TESTING_RETURN', 'EVAPORATION_LOSS', 'STOCK_ADJUSTMENT']
+        && data.quantityLitres is number && data.quantityLitres > 0
+        && data.balanceAfterLitres is number && data.balanceAfterLitres >= 0
+        && data.referenceNo is string && data.referenceNo.size() >= 2 && data.referenceNo.size() <= 48
+        && (!('densityObserved' in data) || (data.densityObserved is number && data.densityObserved > 0))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && isValidId(data.recordedByUid)
+        && data.movementDate is string && data.movementDate.size() >= 8 && data.movementDate.size() <= 16
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAccountingTransaction(data) {
+      return data.keys().hasAll(['stationId', 'bookType', 'entryCategory', 'direction', 'txDate', 'voucherNo', 'accountName', 'partyOrVendor', 'paymentMode', 'amount', 'referenceNo', 'approvalStatus', 'recordedByUid', 'createdAt'])
+        && data.keys().hasOnly(['stationId', 'bookType', 'entryCategory', 'direction', 'txDate', 'voucherNo', 'accountName', 'partyOrVendor', 'expenseCategory', 'paymentMode', 'amount', 'referenceNo', 'description', 'approvalStatus', 'recordedByUid', 'createdAt'])
+        && isValidId(data.stationId)
+        && data.bookType in ['CASH', 'BANK', 'CONTRA']
+        && data.entryCategory in ['FUEL_SALES_RECEIPT', 'CUSTOMER_PAYMENT', 'SUPPLIER_PAYMENT', 'OPERATING_EXPENSE', 'BANK_DEPOSIT', 'CASH_WITHDRAWAL', 'OWNER_CAPITAL', 'OTHER_INCOME']
+        && data.direction in ['INFLOW', 'OUTFLOW']
+        && data.txDate is string && data.txDate.size() >= 8 && data.txDate.size() <= 16
+        && data.voucherNo is string && data.voucherNo.size() >= 3 && data.voucherNo.size() <= 32
+        && data.accountName is string && data.accountName.size() >= 2 && data.accountName.size() <= 100
+        && data.partyOrVendor is string && data.partyOrVendor.size() >= 2 && data.partyOrVendor.size() <= 140
+        && (!('expenseCategory' in data) || data.expenseCategory in ['GENERATOR_FUEL', 'UTILITIES', 'MAINTENANCE', 'STAFF_WELFARE', 'SALARIES', 'RENT', 'CLEANING', 'BANK_CHARGES'])
+        && data.paymentMode in ['CASH', 'UPI', 'CARD', 'NEFT', 'RTGS', 'CHEQUE', 'CONTRA']
+        && data.amount is number && data.amount > 0
+        && data.referenceNo is string && data.referenceNo.size() >= 2 && data.referenceNo.size() <= 48
+        && (!('description' in data) || (data.description is string && data.description.size() <= 300))
+        && data.approvalStatus in ['APPROVED', 'PENDING_OWNER']
+        && isValidId(data.recordedByUid)
+        && data.createdAt is timestamp;
+    }
+
+    // ==================== COLLECTION & SUBCOLLECTION RULES ====================
+
+    // Startup connection check document
+    match /test/connection {
+      allow get: if isSignedIn();
+      allow list, write: if false;
+    }
+
+    // Users: Operational role profile (non-PII)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isOwner() || isStationManager(existing().stationId));
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isOwner() || isStationManager(existing().stationId));
+      allow create: if isValidId(userId)
+        && isValidUserAccount(incoming())
+        && incoming().uid == userId
+        && incoming().assignedBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isOwner()
+          || (isStationManager(incoming().stationId) && incoming().role == 'OPERATOR')
+        );
+      allow update: if isValidId(userId)
+        && isValidUserAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['stationId', 'displayName', 'employeeCode', 'role', 'status', 'assignedBy', 'updatedAt']))
+          || (isStationManager(existing().stationId) && existing().role == 'OPERATOR' && incoming().role == 'OPERATOR' && incoming().stationId == existing().stationId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'employeeCode', 'status', 'assignedBy', 'updatedAt']))
+          || (isSignedIn() && request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']))
+        );
+      allow delete: if false;
+
+      // Pillar 6 PII Isolation: Private contact document
+      match /private/pii {
+        allow get: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isOwner());
+        allow list: if false;
+        allow create: if isValidId(userId)
+          && isValidUserPrivatePii(incoming())
+          && incoming().uid == userId
+          && incoming().updatedAt == request.time
+          && (isSignedIn() && (request.auth.uid == userId || isOwner()));
+        allow update: if isValidId(userId)
+          && isValidUserPrivatePii(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'emergencyContact', 'updatedAt'])
+          && (isSignedIn() && (request.auth.uid == userId || isOwner()));
+        allow delete: if false;
+      }
+    }
+
+    // Role Access Requests for new unprovisioned users
+    match /roleRequests/{requestId} {
+      allow get: if isValidId(requestId) && isSignedIn() && (request.auth.uid == requestId || isOwner());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isOwner());
+      allow create: if isValidId(requestId)
+        && isSignedIn()
+        && isValidRoleRequest(incoming())
+        && requestId == request.auth.uid
+        && incoming().uid == request.auth.uid
+        && incoming().status == 'PENDING'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(requestId)
+        && isValidRoleRequest(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isOwner()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'requestedRole', 'stationId', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // Root Station Tenants & Subcollections (Master Gate)
+    match /stations/{stationId} {
+      allow get: if isValidId(stationId) && isStationMember(stationId);
+      allow list: if isSignedIn() && (existing().ownerUid == request.auth.uid || isOwner() || (hasUserProfile() && userProfile().stationId == stationId));
+      allow create: if isValidId(stationId)
+        && isOwner()
+        && isValidStation(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(stationId)
+        && isOwner()
+        && isValidStation(incoming())
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'licenseNo', 'taxGstNo', 'timezone', 'isActive', 'updatedAt']);
+      allow delete: if false;
+
+      // Audit Logs (Append-only)
+      match /auditLogs/{auditId} {
+        allow get: if isValidId(stationId) && isValidId(auditId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(auditId) && stationExists(stationId)
+          && isStationMember(stationId)
+          && isValidAuditLog(incoming())
+          && incoming().stationId == stationId
+          && incoming().actorUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      // Fuel Products
+      match /products/{productId} {
+        allow get: if isValidId(stationId) && isValidId(productId) && stationExists(stationId) && isStationMember(stationId);
+        allow list: if isSignedIn() && isStationMember(stationId);
+        allow create: if isValidId(stationId) && isValidId(productId) && stationExists(stationId)
+          && isOwner()
+          && isValidFuelProduct(incoming())
+          && incoming().stationId == stationId
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(productId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidFuelProduct(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'currentSellingPrice', 'taxRatePct', 'reorderLevel', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // Storage Tanks & Physical Dip Readings
+      match /tanks/{tankId} {
+        allow get: if isValidId(stationId) && isValidId(tankId) && stationExists(stationId) && isStationMember(stationId);
+        allow list: if isSignedIn() && isStationMember(stationId);
+        allow create: if isValidId(stationId) && isValidId(tankId) && stationExists(stationId)
+          && isOwner()
+          && isValidStorageTank(incoming())
+          && incoming().stationId == stationId
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(tankId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidStorageTank(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['currentBookStockLitres', 'lastDipStockLitres', 'minThresholdLitres', 'updatedAt']);
+        allow delete: if false;
+
+        match /dipReadings/{dipId} {
+          allow get: if isValidId(stationId) && isValidId(tankId) && isValidId(dipId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+          allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+          allow create: if isValidId(stationId) && isValidId(tankId) && isValidId(dipId) && stationExists(stationId)
+            && (isOwner() || isStationManager(stationId))
+            && isValidTankDipReading(incoming())
+            && incoming().tankId == tankId
+            && incoming().recordedByUid == request.auth.uid
+            && incoming().recordedAt == request.time;
+          allow update, delete: if false;
+        }
+      }
+
+      // Day & Night Shifts + Nozzle Assignments + Expenses
+      match /shifts/{shiftId} {
+        allow get: if isValidId(stationId) && isValidId(shiftId) && stationExists(stationId) && isStationMember(stationId);
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId) || existing().operatorUid == request.auth.uid);
+        allow create: if isValidId(stationId) && isValidId(shiftId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidShift(incoming())
+          && incoming().stationId == stationId
+          && incoming().status == 'OPEN'
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(shiftId) && stationExists(stationId)
+          && isValidShift(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            isOwner()
+            || (isStationManager(stationId) && existing().status != 'APPROVED' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'openingCashFloat', 'expectedCashTotal', 'actualCashCollected', 'cashVariance', 'cashBagSealNo', 'updatedAt']))
+            || (isStationOperator(stationId) && existing().operatorUid == request.auth.uid && existing().status == 'OPEN' && incoming().status in ['OPEN', 'HANDED_OVER'] && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'actualCashCollected', 'cashVariance', 'cashBagSealNo', 'updatedAt']))
+          );
+        allow delete: if false;
+
+        match /nozzleAssignments/{assignmentId} {
+          allow get: if isValidId(stationId) && isValidId(shiftId) && isValidId(assignmentId) && stationExists(stationId) && isStationMember(stationId);
+          allow list: if isSignedIn() && existing().operatorUid == request.auth.uid;
+          allow create: if isValidId(stationId) && isValidId(shiftId) && isValidId(assignmentId) && stationExists(stationId)
+            && (isOwner() || isStationManager(stationId))
+            && isValidShiftNozzleAssignment(incoming())
+            && incoming().shiftId == shiftId
+            && incoming().updatedAt == request.time;
+          allow update: if isValidId(stationId) && isValidId(shiftId) && isValidId(assignmentId) && stationExists(stationId)
+            && isValidShiftNozzleAssignment(incoming())
+            && incoming().shiftId == existing().shiftId
+            && incoming().updatedAt == request.time
+            && get(/databases/$(database)/documents/stations/$(stationId)/shifts/$(shiftId)).data.status != 'APPROVED'
+            && (
+              isOwner()
+              || (isStationManager(stationId) && incoming().diff(existing()).affectedKeys().hasOnly(['openingMeter', 'closingMeter', 'testingLitres', 'netDispensedLitres', 'grossAmount', 'updatedAt']))
+              || (isStationOperator(stationId) && existing().operatorUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['closingMeter', 'testingLitres', 'netDispensedLitres', 'grossAmount', 'updatedAt']))
+            );
+          allow delete: if false;
+        }
+
+        match /expenses/{expenseId} {
+          allow get: if isValidId(stationId) && isValidId(shiftId) && isValidId(expenseId) && stationExists(stationId) && isStationMember(stationId);
+          allow list: if isSignedIn() && existing().recordedByUid == request.auth.uid;
+          allow create: if isValidId(stationId) && isValidId(shiftId) && isValidId(expenseId) && stationExists(stationId)
+            && isStationMember(stationId)
+            && isValidShiftExpense(incoming())
+            && incoming().shiftId == shiftId
+            && incoming().stationId == stationId
+            && incoming().recordedByUid == request.auth.uid
+            && incoming().createdAt == request.time;
+          allow update: if false;
+          allow delete: if isValidId(stationId) && isValidId(shiftId) && isValidId(expenseId) && stationExists(stationId)
+            && (isOwner() || (isStationManager(stationId) && get(/databases/$(database)/documents/stations/$(stationId)/shifts/$(shiftId)).data.status != 'APPROVED'));
+        }
+      }
+
+      // Suppliers (Owner manages terms; Manager reads and updates outstanding balance via invoice/payment)
+      match /suppliers/{supplierId} {
+        allow get: if isValidId(stationId) && isValidId(supplierId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(supplierId) && stationExists(stationId)
+          && isOwner()
+          && isValidSupplier(incoming())
+          && incoming().stationId == stationId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(supplierId) && stationExists(stationId)
+          && isValidSupplier(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().supplierCode == existing().supplierCode
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'gstNumber', 'contactPerson', 'phone', 'email', 'depotLocation', 'paymentTermsDays', 'creditLimit', 'outstandingBalance', 'status', 'updatedAt']))
+            || (isStationManager(stationId) && incoming().diff(existing()).affectedKeys().hasOnly(['outstandingBalance', 'updatedAt']))
+          );
+        allow delete: if false;
+      }
+
+      // Purchase Orders
+      match /purchaseOrders/{poId} {
+        allow get: if isValidId(stationId) && isValidId(poId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(poId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidPurchaseOrder(incoming())
+          && incoming().stationId == stationId
+          && incoming().createdByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(poId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidPurchaseOrder(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().createdByUid == existing().createdByUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'receivedLitres', 'totalEstimatedAmount', 'notes', 'approvedByUid', 'updatedAt']))
+            || (isStationManager(stationId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'receivedLitres', 'notes', 'updatedAt']))
+          );
+        allow delete: if false;
+      }
+
+      // Fuel Deliveries (Tanker GRN)
+      match /deliveries/{deliveryId} {
+        allow get: if isValidId(stationId) && isValidId(deliveryId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(deliveryId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidFuelDelivery(incoming())
+          && incoming().stationId == stationId
+          && incoming().verifiedByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(deliveryId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidFuelDelivery(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().verifiedByUid == existing().verifiedByUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // Supplier Invoices
+      match /supplierInvoices/{invoiceId} {
+        allow get: if isValidId(stationId) && isValidId(invoiceId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(invoiceId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidSupplierInvoice(incoming())
+          && incoming().stationId == stationId
+          && incoming().recordedByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(invoiceId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidSupplierInvoice(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().recordedByUid == existing().recordedByUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['paidAmount', 'paymentStatus', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // Supplier Payments (Immutable Ledger)
+      match /supplierPayments/{paymentId} {
+        allow get: if isValidId(stationId) && isValidId(paymentId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(paymentId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidSupplierPayment(incoming())
+          && incoming().stationId == stationId
+          && incoming().recordedByUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      // Sales Transactions
+      match /sales/{saleId} {
+        allow get: if isValidId(stationId) && isValidId(saleId) && stationExists(stationId) && isStationMember(stationId);
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId) || existing().operatorUid == request.auth.uid);
+        allow create: if isValidId(stationId) && isValidId(saleId) && stationExists(stationId)
+          && isStationMember(stationId)
+          && isValidSalesTransaction(incoming())
+          && incoming().stationId == stationId
+          && incoming().operatorUid == request.auth.uid
+          && incoming().status == 'POSTED'
+          && incoming().soldAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(saleId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidSalesTransaction(incoming())
+          && existing().status == 'POSTED'
+          && incoming().status == 'VOIDED'
+          && incoming().stationId == existing().stationId
+          && incoming().operatorUid == existing().operatorUid
+          && incoming().soldAt == existing().soldAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+        allow delete: if false;
+      }
+
+      // Fleet Credit Customers & Ledger
+      match /creditCustomers/{customerId} {
+        allow get: if isValidId(stationId) && isValidId(customerId) && stationExists(stationId) && isStationMember(stationId);
+        allow list: if isSignedIn() && isStationMember(stationId);
+        allow create: if isValidId(stationId) && isValidId(customerId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidCreditCustomer(incoming())
+          && incoming().stationId == stationId
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(customerId) && stationExists(stationId)
+          && isValidCreditCustomer(incoming())
+          && incoming().stationId == existing().stationId
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['creditLimit', 'currentBalance', 'status', 'updatedAt']))
+            || (isStationManager(stationId) && incoming().diff(existing()).affectedKeys().hasOnly(['currentBalance', 'status', 'updatedAt']))
+            || (isStationOperator(stationId) && existing().status == 'ACTIVE' && incoming().status == 'ACTIVE' && incoming().currentBalance >= existing().currentBalance && incoming().currentBalance <= existing().creditLimit && incoming().diff(existing()).affectedKeys().hasOnly(['currentBalance', 'updatedAt']))
+          );
+        allow delete: if false;
+
+        match /ledger/{creditTxId} {
+          allow get: if isValidId(stationId) && isValidId(customerId) && isValidId(creditTxId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+          allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+          allow create: if isValidId(stationId) && isValidId(customerId) && isValidId(creditTxId) && stationExists(stationId)
+            && isStationMember(stationId)
+            && isValidCreditLedgerEntry(incoming())
+            && incoming().customerId == customerId
+            && incoming().stationId == stationId
+            && incoming().createdAt == request.time;
+          allow update, delete: if false;
+        }
+      }
+
+      // Double-Entry Journals (Owner & System Accounting)
+      match /journals/{journalId} {
+        allow get: if isValidId(stationId) && isValidId(journalId) && stationExists(stationId) && isOwner();
+        allow list: if isSignedIn() && isOwner();
+        allow create: if isValidId(stationId) && isValidId(journalId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidJournalEntry(incoming())
+          && incoming().stationId == stationId
+          && incoming().postedByUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(journalId) && stationExists(stationId)
+          && isOwner()
+          && isValidJournalEntry(incoming())
+          && existing().status != 'REVERSED'
+          && incoming().stationId == existing().stationId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+        allow delete: if false;
+      }
+
+      // Owner Notifications
+      match /notifications/{notificationId} {
+        allow get: if isValidId(stationId) && isValidId(notificationId) && stationExists(stationId) && (isOwner() || existing().recipientUid == request.auth.uid);
+        allow list: if isSignedIn() && (isOwner() || existing().recipientUid == request.auth.uid);
+        allow create: if isValidId(stationId) && isValidId(notificationId) && stationExists(stationId)
+          && isStationMember(stationId)
+          && isValidOwnerNotification(incoming())
+          && incoming().stationId == stationId
+          && incoming().createdAt == request.time;
+        allow update: if isValidId(stationId) && isValidId(notificationId) && stationExists(stationId)
+          && isValidOwnerNotification(incoming())
+          && (isOwner() || existing().recipientUid == request.auth.uid)
+          && incoming().stationId == existing().stationId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+        allow delete: if false;
+      }
+
+      // Immutable Stock In / Stock Out Ledger
+      match /stockMovements/{movementId} {
+        allow get: if isValidId(stationId) && isValidId(movementId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(movementId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidStockMovement(incoming())
+          && incoming().stationId == stationId
+          && incoming().recordedByUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      // Cash Book, Bank Book, Contra & Expense Ledger
+      match /accountingTransactions/{txId} {
+        allow get: if isValidId(stationId) && isValidId(txId) && stationExists(stationId) && (isOwner() || isStationManager(stationId));
+        allow list: if isSignedIn() && (isOwner() || isStationManager(stationId));
+        allow create: if isValidId(stationId) && isValidId(txId) && stationExists(stationId)
+          && (isOwner() || isStationManager(stationId))
+          && isValidAccountingTransaction(incoming())
+          && incoming().stationId == stationId
+          && incoming().recordedByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && (
+            isOwner()
+            || (isStationManager(stationId) && (incoming().approvalStatus == 'PENDING_OWNER' || incoming().amount <= 5000))
+          );
+        allow update: if isValidId(stationId) && isValidId(txId) && stationExists(stationId)
+          && isOwner()
+          && isValidAccountingTransaction(incoming())
+          && existing().approvalStatus == 'PENDING_OWNER'
+          && incoming().approvalStatus == 'APPROVED'
+          && incoming().stationId == existing().stationId
+          && incoming().recordedByUid == existing().recordedByUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['approvalStatus']);
+        allow delete: if false;
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "PetrolOps Architecture Studio",
+  "description": "Complete software architecture specification for a Petrol Pump Management System covering PostgreSQL schema, interactive ERD, table and collection structures, RBAC permissions matrix, and operational workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

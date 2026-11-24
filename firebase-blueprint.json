@@ -1,0 +1,739 @@
+{
+  "entities": {
+    "ConnectionCheck": {
+      "title": "ConnectionCheck",
+      "description": "Connectivity verification document for startup Firestore health check.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Connection probe state."
+        }
+      },
+      "required": ["status"]
+    },
+    "Station": {
+      "title": "Station",
+      "description": "Root multi-tenant petrol station document isolating forecourt operations, tanks, shifts, and ledgers.",
+      "type": "object",
+      "properties": {
+        "stationCode": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[A-Z0-9-]+$",
+          "description": "Unique station code (e.g., STN-HWY-04)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Registered petrol pump station name."
+        },
+        "licenseNo": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64,
+          "description": "Petroleum & explosives retail license number."
+        },
+        "taxGstNo": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 32,
+          "description": "GST/VAT tax identifier."
+        },
+        "timezone": {
+          "type": "string",
+          "maxLength": 48,
+          "description": "IANA timezone for shift cutoffs."
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Firebase Auth UID of the primary station owner."
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Operational status flag."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["stationCode", "name", "licenseNo", "taxGstNo", "timezone", "ownerUid", "isActive", "createdAt", "updatedAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Operational identity and RBAC role assignment document (non-PII fields).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Firebase Auth UID matching document ID."
+        },
+        "stationId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Assigned station ID (or ALL for multi-station Owner)."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Display name shown in shift rosters and approvals."
+        },
+        "employeeCode": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "Station badge code."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["OWNER", "MANAGER", "OPERATOR"],
+          "description": "RBAC privilege tier."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "SUSPENDED"],
+          "description": "Account activation status."
+        },
+        "assignedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID of Owner/Manager who provisioned the role."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["uid", "stationId", "displayName", "employeeCode", "role", "status", "assignedBy", "createdAt", "updatedAt"]
+    },
+    "UserPrivatePii": {
+      "title": "UserPrivatePii",
+      "description": "PII-isolated private contact details restricted strictly to the user or Owner.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Owning Firebase Auth UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160,
+          "description": "Verified login email."
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "E.164 phone number."
+        },
+        "emergencyContact": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Emergency contact details."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["uid", "email", "phone", "updatedAt"]
+    },
+    "RoleAccessRequest": {
+      "title": "RoleAccessRequest",
+      "description": "Pending onboarding request submitted by a signed-in user awaiting Owner/Manager role approval.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Requesting user UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160,
+          "description": "Requesting user verified email."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Applicant full name."
+        },
+        "stationId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Target station ID."
+        },
+        "requestedRole": {
+          "type": "string",
+          "enum": ["MANAGER", "OPERATOR"],
+          "description": "Requested operational role."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "APPROVED", "DECLINED"],
+          "description": "Approval status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server submission timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server decision timestamp."
+        }
+      },
+      "required": ["uid", "email", "displayName", "stationId", "requestedRole", "status", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Append-only immutable audit entry for security and financial events.",
+      "type": "object",
+      "properties": {
+        "stationId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Parent station ID."
+        },
+        "actorUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "UID of actor."
+        },
+        "module": {
+          "type": "string",
+          "maxLength": 48,
+          "description": "Originating module."
+        },
+        "action": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Action verb."
+        },
+        "entityType": {
+          "type": "string",
+          "maxLength": 48,
+          "description": "Target collection."
+        },
+        "entityId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Target document ID."
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable change summary."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server event timestamp."
+        }
+      },
+      "required": ["stationId", "actorUid", "module", "action", "entityType", "entityId", "summary", "createdAt"]
+    },
+    "FuelProduct": {
+      "title": "FuelProduct",
+      "description": "Station fuel grade or lubricant catalog entry.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "sku": { "type": "string", "maxLength": 32 },
+        "name": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "enum": ["FUEL", "LUBRICANT", "ADDITIVE"] },
+        "unit": { "type": "string", "enum": ["LITRE", "KG", "BOTTLE"] },
+        "currentSellingPrice": { "type": "number" },
+        "taxRatePct": { "type": "number" },
+        "reorderLevel": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "sku", "name", "category", "unit", "currentSellingPrice", "taxRatePct", "reorderLevel", "updatedAt"]
+    },
+    "StorageTank": {
+      "title": "StorageTank",
+      "description": "Underground bulk fuel tank tracking book and physical dip inventory.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "tankCode": { "type": "string", "maxLength": 16 },
+        "capacityLitres": { "type": "number" },
+        "currentBookStockLitres": { "type": "number" },
+        "lastDipStockLitres": { "type": "number" },
+        "minThresholdLitres": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "productId", "tankCode", "capacityLitres", "currentBookStockLitres", "lastDipStockLitres", "minThresholdLitres", "updatedAt"]
+    },
+    "TankDipReading": {
+      "title": "TankDipReading",
+      "description": "Physical dipstick and water-cut calibration log for an underground tank.",
+      "type": "object",
+      "properties": {
+        "tankId": { "type": "string", "maxLength": 128 },
+        "shiftId": { "type": "string", "maxLength": 128 },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "readingType": { "type": "string", "enum": ["SHIFT_OPEN", "SHIFT_CLOSE", "PRE_DECANT", "POST_DECANT", "AUDIT"] },
+        "dipMm": { "type": "number" },
+        "waterDipMm": { "type": "number" },
+        "calculatedVolumeLitres": { "type": "number" },
+        "bookStockLitres": { "type": "number" },
+        "varianceLitres": { "type": "number" },
+        "recordedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tankId", "recordedByUid", "readingType", "dipMm", "calculatedVolumeLitres", "bookStockLitres", "varianceLitres", "recordedAt"]
+    },
+    "Shift": {
+      "title": "Shift",
+      "description": "Day or Night forecourt operational shift reconciling meters, cash, expenses, and approval.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "shiftCode": { "type": "string", "maxLength": 32 },
+        "shiftType": { "type": "string", "enum": ["DAY", "NIGHT"] },
+        "businessDate": { "type": "string", "maxLength": 16 },
+        "supervisorUid": { "type": "string", "maxLength": 128 },
+        "operatorUid": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["OPEN", "HANDED_OVER", "APPROVED", "REJECTED"] },
+        "openingCashFloat": { "type": "number" },
+        "expectedCashTotal": { "type": "number" },
+        "actualCashCollected": { "type": "number" },
+        "cashVariance": { "type": "number" },
+        "cashBagSealNo": { "type": "string", "maxLength": 48 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "shiftCode", "shiftType", "businessDate", "supervisorUid", "operatorUid", "status", "openingCashFloat", "expectedCashTotal", "actualCashCollected", "cashVariance", "createdAt", "updatedAt"]
+    },
+    "ShiftNozzleAssignment": {
+      "title": "ShiftNozzleAssignment",
+      "description": "Operator nozzle meter opening/closing totalizer reading within a shift.",
+      "type": "object",
+      "properties": {
+        "shiftId": { "type": "string", "maxLength": 128 },
+        "nozzleId": { "type": "string", "maxLength": 128 },
+        "operatorUid": { "type": "string", "maxLength": 128 },
+        "openingMeter": { "type": "number" },
+        "closingMeter": { "type": "number" },
+        "testingLitres": { "type": "number" },
+        "netDispensedLitres": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "grossAmount": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shiftId", "nozzleId", "operatorUid", "openingMeter", "closingMeter", "testingLitres", "netDispensedLitres", "unitPrice", "grossAmount", "updatedAt"]
+    },
+    "ShiftExpense": {
+      "title": "ShiftExpense",
+      "description": "Petty cash or operating expense recorded during a forecourt shift.",
+      "type": "object",
+      "properties": {
+        "shiftId": { "type": "string", "maxLength": 128 },
+        "stationId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "enum": ["GENERATOR_FUEL", "UTILITIES", "MAINTENANCE", "STAFF_WELFARE", "CLEANING"] },
+        "vendor": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 300 },
+        "amount": { "type": "number" },
+        "paidFromCashDrawer": { "type": "boolean" },
+        "receiptRef": { "type": "string", "maxLength": 48 },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shiftId", "stationId", "category", "vendor", "amount", "paidFromCashDrawer", "receiptRef", "recordedByUid", "createdAt"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "OMC fuel depot or lubricant vendor supplying the station.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "supplierCode": { "type": "string", "minLength": 2, "maxLength": 24 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "category": { "type": "string", "enum": ["OMC_FUEL", "LUBRICANT", "ADDITIVE", "EQUIPMENT"] },
+        "gstNumber": { "type": "string", "minLength": 5, "maxLength": 32 },
+        "contactPerson": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "phone": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "email": { "type": "string", "maxLength": 160 },
+        "depotLocation": { "type": "string", "maxLength": 160 },
+        "paymentTermsDays": { "type": "number" },
+        "creditLimit": { "type": "number" },
+        "outstandingBalance": { "type": "number" },
+        "status": { "type": "string", "enum": ["ACTIVE", "ON_HOLD", "INACTIVE"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "supplierCode", "name", "category", "gstNumber", "contactPerson", "phone", "paymentTermsDays", "creditLimit", "outstandingBalance", "status", "createdAt", "updatedAt"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Fuel tanker indent order issued to an Oil Marketing Company or lubricant supplier.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "supplierId": { "type": "string", "maxLength": 128 },
+        "supplierName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "poNumber": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "orderDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "expectedDeliveryDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "primaryFuelGrade": { "type": "string", "minLength": 2, "maxLength": 48 },
+        "totalOrderedLitres": { "type": "number" },
+        "receivedLitres": { "type": "number" },
+        "itemsJson": { "type": "string", "maxLength": 2000 },
+        "notes": { "type": "string", "maxLength": 400 },
+        "status": { "type": "string", "enum": ["DRAFT", "ORDERED", "PARTIAL", "RECEIVED", "CANCELLED"] },
+        "totalEstimatedAmount": { "type": "number" },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "approvedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "supplierId", "supplierName", "poNumber", "orderDate", "expectedDeliveryDate", "primaryFuelGrade", "totalOrderedLitres", "receivedLitres", "itemsJson", "status", "totalEstimatedAmount", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "FuelDelivery": {
+      "title": "FuelDelivery",
+      "description": "Road tanker unloading Goods Receipt Note with density, temperature, and shortage verification.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "poId": { "type": "string", "maxLength": 128 },
+        "poNumber": { "type": "string", "maxLength": 32 },
+        "supplierId": { "type": "string", "maxLength": 128 },
+        "supplierName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "invoiceNumber": { "type": "string", "minLength": 2, "maxLength": 48 },
+        "deliveryDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "tankerRegNo": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "driverName": { "type": "string", "maxLength": 100 },
+        "productName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "targetTankCode": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "invoicedQtyLitres": { "type": "number" },
+        "receivedQtyLitres": { "type": "number" },
+        "shortageLitres": { "type": "number" },
+        "densityObserved": { "type": "number" },
+        "temperatureC": { "type": "number" },
+        "waterDipMm": { "type": "number" },
+        "totalInvoiceAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "DECANTED", "POSTED"] },
+        "verifiedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "supplierId", "supplierName", "invoiceNumber", "deliveryDate", "tankerRegNo", "productName", "targetTankCode", "invoicedQtyLitres", "receivedQtyLitres", "shortageLitres", "densityObserved", "temperatureC", "waterDipMm", "totalInvoiceAmount", "status", "verifiedByUid", "createdAt", "updatedAt"]
+    },
+    "SupplierInvoice": {
+      "title": "SupplierInvoice",
+      "description": "Vendor tax invoice linked to a fuel delivery or purchase order with payable tracking.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "supplierId": { "type": "string", "maxLength": 128 },
+        "supplierName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "poId": { "type": "string", "maxLength": 128 },
+        "deliveryId": { "type": "string", "maxLength": 128 },
+        "invoiceNumber": { "type": "string", "minLength": 2, "maxLength": 48 },
+        "invoiceDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "dueDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "subtotalAmount": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["UNPAID", "PARTIAL", "PAID"] },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "supplierId", "supplierName", "invoiceNumber", "invoiceDate", "dueDate", "subtotalAmount", "taxAmount", "totalAmount", "paidAmount", "paymentStatus", "recordedByUid", "createdAt", "updatedAt"]
+    },
+    "SupplierPayment": {
+      "title": "SupplierPayment",
+      "description": "RTGS/NEFT/Cheque/UPI settlement posted against a supplier invoice.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "supplierId": { "type": "string", "maxLength": 128 },
+        "supplierName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "invoiceId": { "type": "string", "maxLength": 128 },
+        "invoiceNumber": { "type": "string", "minLength": 2, "maxLength": 48 },
+        "paymentRef": { "type": "string", "minLength": 2, "maxLength": 48 },
+        "paymentDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "paymentMode": { "type": "string", "enum": ["RTGS", "NEFT", "CHEQUE", "UPI", "CASH"] },
+        "amount": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "supplierId", "supplierName", "invoiceId", "invoiceNumber", "paymentRef", "paymentDate", "paymentMode", "amount", "recordedByUid", "createdAt"]
+    },
+    "SalesTransaction": {
+      "title": "SalesTransaction",
+      "description": "Individual POS receipt for cash, digital, lubricant, or fleet credit sales with machine, nozzle, and profit tracking.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "shiftId": { "type": "string", "maxLength": 128 },
+        "dispenserCode": { "type": "string", "minLength": 2, "maxLength": 24 },
+        "nozzleCode": { "type": "string", "minLength": 2, "maxLength": 24 },
+        "productName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "gradeCode": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "quantityLitres": { "type": "number" },
+        "unitSellingPrice": { "type": "number" },
+        "unitCostPrice": { "type": "number" },
+        "grossProfit": { "type": "number" },
+        "operatorUid": { "type": "string", "maxLength": 128 },
+        "operatorName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 140 },
+        "receiptNumber": { "type": "string", "minLength": 3, "maxLength": 40 },
+        "paymentMode": { "type": "string", "enum": ["CASH", "CARD", "UPI", "CREDIT", "FLEET_CARD"] },
+        "paymentReference": { "type": "string", "maxLength": 64 },
+        "vehicleNo": { "type": "string", "maxLength": 24 },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["POSTED", "VOIDED"] },
+        "soldDate": { "type": "string", "minLength": 8, "maxLength": 16 },
+        "soldAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "shiftId", "dispenserCode", "nozzleCode", "productName", "gradeCode", "quantityLitres", "unitSellingPrice", "unitCostPrice", "grossProfit", "operatorUid", "operatorName", "receiptNumber", "paymentMode", "totalAmount", "status", "soldDate", "soldAt"]
+    },
+    "CreditCustomer": {
+      "title": "CreditCustomer",
+      "description": "Corporate fleet customer credit line with limit and live receivable balance.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "accountCode": { "type": "string", "maxLength": 24 },
+        "companyName": { "type": "string", "maxLength": 140 },
+        "creditLimit": { "type": "number" },
+        "currentBalance": { "type": "number" },
+        "status": { "type": "string", "enum": ["ACTIVE", "HOLD", "SUSPENDED"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "accountCode", "companyName", "creditLimit", "currentBalance", "status", "updatedAt"]
+    },
+    "CreditLedgerEntry": {
+      "title": "CreditLedgerEntry",
+      "description": "Append-only credit subledger debit or repayment credit transaction.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "maxLength": 128 },
+        "stationId": { "type": "string", "maxLength": 128 },
+        "txType": { "type": "string", "enum": ["INVOICE_DEBIT", "PAYMENT_CREDIT", "ADJUSTMENT"] },
+        "amount": { "type": "number" },
+        "runningBalance": { "type": "number" },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "stationId", "txType", "amount", "runningBalance", "referenceId", "createdAt"]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "Balanced double-entry accounting voucher posted from shifts, purchases, or expenses.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "voucherNo": { "type": "string", "maxLength": 32 },
+        "sourceModule": { "type": "string", "maxLength": 48 },
+        "sourceId": { "type": "string", "maxLength": 128 },
+        "totalDebit": { "type": "number" },
+        "totalCredit": { "type": "number" },
+        "status": { "type": "string", "enum": ["DRAFT", "POSTED", "REVERSED"] },
+        "postedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "voucherNo", "sourceModule", "totalDebit", "totalCredit", "status", "postedByUid", "createdAt"]
+    },
+    "OwnerNotification": {
+      "title": "OwnerNotification",
+      "description": "Operational and financial alert dispatched to the station Owner or Manager.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "recipientUid": { "type": "string", "maxLength": 128 },
+        "shiftId": { "type": "string", "maxLength": 128 },
+        "severity": { "type": "string", "enum": ["INFO", "WARNING", "CRITICAL"] },
+        "eventType": { "type": "string", "maxLength": 48 },
+        "title": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 500 },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "recipientUid", "severity", "eventType", "title", "message", "isRead", "createdAt"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Immutable Stock In / Stock Out ledger entry for underground tank inventory.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "tankId": { "type": "string", "maxLength": 128 },
+        "tankCode": { "type": "string", "maxLength": 16 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 100 },
+        "gradeCode": { "type": "string", "maxLength": 16 },
+        "direction": { "type": "string", "enum": ["IN", "OUT"] },
+        "movementType": { "type": "string", "enum": ["TANKER_DECANT", "NOZZLE_SALES", "TESTING_RETURN", "EVAPORATION_LOSS", "STOCK_ADJUSTMENT"] },
+        "quantityLitres": { "type": "number" },
+        "balanceAfterLitres": { "type": "number" },
+        "referenceNo": { "type": "string", "maxLength": 48 },
+        "densityObserved": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "movementDate": { "type": "string", "maxLength": 16 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "tankId", "tankCode", "productId", "productName", "gradeCode", "direction", "movementType", "quantityLitres", "balanceAfterLitres", "referenceNo", "recordedByUid", "movementDate", "createdAt"]
+    },
+    "AccountingTransaction": {
+      "title": "AccountingTransaction",
+      "description": "Cash Book, Bank Book, Contra, and Operating Expense ledger entry per station.",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "maxLength": 128 },
+        "bookType": { "type": "string", "enum": ["CASH", "BANK", "CONTRA"] },
+        "entryCategory": { "type": "string", "enum": ["FUEL_SALES_RECEIPT", "CUSTOMER_PAYMENT", "SUPPLIER_PAYMENT", "OPERATING_EXPENSE", "BANK_DEPOSIT", "CASH_WITHDRAWAL", "OWNER_CAPITAL", "OTHER_INCOME"] },
+        "direction": { "type": "string", "enum": ["INFLOW", "OUTFLOW"] },
+        "txDate": { "type": "string", "maxLength": 16 },
+        "voucherNo": { "type": "string", "maxLength": 32 },
+        "accountName": { "type": "string", "maxLength": 100 },
+        "partyOrVendor": { "type": "string", "maxLength": 140 },
+        "expenseCategory": { "type": "string", "enum": ["GENERATOR_FUEL", "UTILITIES", "MAINTENANCE", "STAFF_WELFARE", "SALARIES", "RENT", "CLEANING", "BANK_CHARGES"] },
+        "paymentMode": { "type": "string", "enum": ["CASH", "UPI", "CARD", "NEFT", "RTGS", "CHEQUE", "CONTRA"] },
+        "amount": { "type": "number" },
+        "referenceNo": { "type": "string", "maxLength": 48 },
+        "description": { "type": "string", "maxLength": 300 },
+        "approvalStatus": { "type": "string", "enum": ["APPROVED", "PENDING_OWNER"] },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stationId", "bookType", "entryCategory", "direction", "txDate", "voucherNo", "accountName", "partyOrVendor", "paymentMode", "amount", "referenceNo", "approvalStatus", "recordedByUid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/test/connection": {
+      "schema": { "$ref": "#/entities/ConnectionCheck" },
+      "description": "Startup Firestore reachability check document."
+    },
+    "/stations/{stationId}": {
+      "schema": { "$ref": "#/entities/Station" },
+      "description": "Top-level station tenant documents."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User operational profile and RBAC role binding (non-PII)."
+    },
+    "/users/{userId}/private/pii": {
+      "schema": { "$ref": "#/entities/UserPrivatePii" },
+      "description": "Isolated PII subcollection document for verified user contact info."
+    },
+    "/roleRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/RoleAccessRequest" },
+      "description": "Access requests from newly authenticated users awaiting Owner or Manager assignment."
+    },
+    "/stations/{stationId}/auditLogs/{auditId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable security and operational audit trail per station."
+    },
+    "/stations/{stationId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/FuelProduct" },
+      "description": "Fuel grades and lubricant inventory catalog per station."
+    },
+    "/stations/{stationId}/tanks/{tankId}": {
+      "schema": { "$ref": "#/entities/StorageTank" },
+      "description": "Underground fuel storage tanks per station."
+    },
+    "/stations/{stationId}/tanks/{tankId}/dipReadings/{dipId}": {
+      "schema": { "$ref": "#/entities/TankDipReading" },
+      "description": "Physical dipstick readings per tank."
+    },
+    "/stations/{stationId}/shifts/{shiftId}": {
+      "schema": { "$ref": "#/entities/Shift" },
+      "description": "Day and Night operational shifts per station."
+    },
+    "/stations/{stationId}/shifts/{shiftId}/nozzleAssignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/ShiftNozzleAssignment" },
+      "description": "Nozzle meter assignments and totalizer readings per shift."
+    },
+    "/stations/{stationId}/shifts/{shiftId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/ShiftExpense" },
+      "description": "Shift operating expenses drawn from cash or bank."
+    },
+    "/stations/{stationId}/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Approved OMC fuel depots and lubricant suppliers per station."
+    },
+    "/stations/{stationId}/purchaseOrders/{poId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Fuel tanker purchase orders per station."
+    },
+    "/stations/{stationId}/deliveries/{deliveryId}": {
+      "schema": { "$ref": "#/entities/FuelDelivery" },
+      "description": "Tanker Goods Receipt Notes per station."
+    },
+    "/stations/{stationId}/supplierInvoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/SupplierInvoice" },
+      "description": "Vendor tax invoices and payable balances per station."
+    },
+    "/stations/{stationId}/supplierPayments/{paymentId}": {
+      "schema": { "$ref": "#/entities/SupplierPayment" },
+      "description": "Supplier settlement payments per station."
+    },
+    "/stations/{stationId}/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/SalesTransaction" },
+      "description": "POS retail and credit transactions per station."
+    },
+    "/stations/{stationId}/creditCustomers/{customerId}": {
+      "schema": { "$ref": "#/entities/CreditCustomer" },
+      "description": "Corporate fleet credit accounts per station."
+    },
+    "/stations/{stationId}/creditCustomers/{customerId}/ledger/{creditTxId}": {
+      "schema": { "$ref": "#/entities/CreditLedgerEntry" },
+      "description": "Running balance credit ledger entries per customer."
+    },
+    "/stations/{stationId}/journals/{journalId}": {
+      "schema": { "$ref": "#/entities/JournalEntry" },
+      "description": "Double-entry accounting vouchers per station."
+    },
+    "/stations/{stationId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/OwnerNotification" },
+      "description": "Owner and Manager alert inbox per station."
+    },
+    "/stations/{stationId}/stockMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/StockMovement" },
+      "description": "Immutable Stock In and Stock Out ledger movements per station."
+    },
+    "/stations/{stationId}/accountingTransactions/{txId}": {
+      "schema": { "$ref": "#/entities/AccountingTransaction" },
+      "description": "Cash Book, Bank Book, Contra, and Operating Expense ledger entries per station."
+    }
+  }
+}
